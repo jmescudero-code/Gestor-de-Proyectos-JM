@@ -1,0 +1,102 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function isInitialAdmin() {
+      // Bootstrapped admin
+      return isSignedIn() && (
+        request.auth.token.email == 'jmescudero@grupamar.es' || 
+        request.auth.token.email == 'Jmescudero@grupamar.es' || 
+        request.auth.token.email == 'JMEscudero@grupamar.es' || 
+        request.auth.token.email.matches('(?i)^jmescudero@grupamar\\.es$')
+      );
+    }
+
+    function isAdmin() {
+      return isInitialAdmin() || (isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'admin') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role == 'admin')
+      ));
+    }
+
+    function isEditor() {
+      return isAdmin() || (isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'editor') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role == 'editor')
+      ));
+    }
+
+    function isViewer() {
+      return isEditor() || (isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'viewer') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email.lower())) && get(/databases/$(database)/documents/users/$(request.auth.token.email.lower())).data.role == 'viewer')
+      ));
+    }
+
+    match /users/{userId} {
+      // Allow read if you are reading your own doc or you are at least a viewer (for assignment lists)
+      allow read: if isSignedIn() && (request.auth.token.email.lower() == userId.lower() || isViewer());
+      
+      // Allow user to create their own record as pending initial setup
+      allow create: if isAdmin() || (
+        isSignedIn() 
+        && request.auth.token.email.lower() == userId.lower()
+        && request.resource.data.keys().hasAll(['email', 'role', 'active'])
+        && request.resource.data.email.lower() == request.auth.token.email.lower()
+        && (
+          (request.resource.data.role == 'pending' && request.resource.data.active == false) ||
+          (isInitialAdmin() && request.resource.data.role == 'admin' && request.resource.data.active == true)
+        )
+      );
+
+      // Only admins can update user roles/status, or user updating their own non-role fields
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.token.email.lower() == userId.lower() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['updatedAt', 'status']))
+      );
+    }
+
+    match /groups/{groupId} {
+      allow read: if isViewer();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if isViewer();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isEditor() && (
+         // Editors can update progress, status, dates
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'progress', 'startDate', 'endDate', 'updatedAt'])
+      ));
+    }
+
+    match /actions/{actionId} {
+      allow read: if isViewer();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isEditor() && (
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'progress', 'startDate', 'endDate', 'updatedAt'])
+      ));
+    }
+
+    match /subtasks/{subtaskId} {
+      allow read: if isViewer();
+      allow create, delete: if isEditor(); // Editors can create subtasks
+      allow update: if isEditor(); // Editors can update their subtasks
+    }
+
+    match /progressLogs/{logId} {
+      allow read: if isViewer();
+      allow create: if isEditor() && request.resource.data.userId == request.auth.uid;
+      allow update: if isEditor() && resource.data.userId == request.auth.uid;
+      allow delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the system with their role and status.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User's email address."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "editor", "viewer", "pending"],
+          "description": "User's role or 'pending' if not yet approved."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the user is currently active/approved."
+        },
+        "createdAt": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "integer"
+        }
+      },
+      "required": ["email", "role", "active"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A group grouping multiple projects.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["name", "active"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A project under a group.",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "responsible": { "type": "string" },
+        "priority": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["groupId", "code", "name", "status", "progress", "active"]
+    },
+    "Action": {
+      "title": "Action",
+      "description": "An action within a project.",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string" },
+        "groupId": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "responsible": { "type": "string" },
+        "priority": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["projectId", "code", "name", "status", "progress", "active"]
+    },
+    "Subtask": {
+      "title": "Subtask",
+      "description": "A subtask within an action.",
+      "type": "object",
+      "properties": {
+        "actionId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "groupId": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "number" },
+        "responsible": { "type": "string" },
+        "priority": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["actionId", "code", "name", "status", "progress", "active"]
+    },
+    "ProgressLog": {
+      "title": "ProgressLog",
+      "description": "A log of progress on an entity.",
+      "type": "object",
+      "properties": {
+        "entityType": { "type": "string", "enum": ["project", "action", "subtask"] },
+        "entityId": { "type": "string" },
+        "userId": { "type": "string" },
+        "originalText": { "type": "string" },
+        "transcribedText": { "type": "string" },
+        "finalText": { "type": "string" },
+        "oldStatus": { "type": "string" },
+        "newStatus": { "type": "string" },
+        "oldProgress": { "type": "number" },
+        "newProgress": { "type": "number" },
+        "week": { "type": "number" },
+        "month": { "type": "number" },
+        "year": { "type": "number" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["entityType", "entityId", "userId", "finalText", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Users of the system."
+    },
+    "groups/{groupId}": {
+      "schema": { "$ref": "#/entities/Group" },
+      "description": "Groups of projects."
+    },
+    "projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "Projects."
+    },
+    "actions/{actionId}": {
+      "schema": { "$ref": "#/entities/Action" },
+      "description": "Actions."
+    },
+    "subtasks/{subtaskId}": {
+      "schema": { "$ref": "#/entities/Subtask" },
+      "description": "Subtasks."
+    },
+    "progressLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ProgressLog" },
+      "description": "Progress logs."
+    }
+  }
+}
