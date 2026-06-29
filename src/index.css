@@ -2,10 +2,10 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-dark: #091197;
-  --color-brand-light: #03A9EC;
-  --color-brand-gray: #F6F6F6;
-  --color-brand-orange: #F75600;
+  --color-brand-dark: #0F172A;
+  --color-brand-light: #6366F1;
+  --color-brand-gray: #F8FAFC;
+  --color-brand-orange: #EA580C;
 
   --font-sans: "Basier Square", "Arial Nova", "Inter", ui-sans-serif, system-ui, sans-serif;
 }

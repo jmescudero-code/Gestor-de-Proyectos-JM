@@ -27,17 +27,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView })
 
   return (
     <div className="w-64 bg-brand-dark text-white h-screen flex flex-col fixed left-0 top-0 rounded-r-[16px] shadow-xl overflow-hidden">
-      <div className="p-8">
-        <h1 className="text-3xl font-bold flex items-center gap-1.5 tracking-tight">
-          <div className="grid grid-cols-2 gap-1 w-6 h-6 rotate-45 mr-1">
-             <div className="bg-white rounded-[4px]"></div>
-             <div className="bg-brand-light rounded-[4px]"></div>
-             <div className="bg-brand-light rounded-[4px]"></div>
-             <div className="bg-white rounded-[4px]"></div>
+      <div className="p-6 border-b border-white/5">
+        <div className="flex items-center gap-3">
+          <svg className="w-10 h-10" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="aura-grad-1" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#38bdf8" />
+                <stop offset="50%" stopColor="#6366f1" />
+                <stop offset="100%" stopColor="#a855f7" />
+              </linearGradient>
+              <linearGradient id="aura-grad-2" x1="100%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#a855f7" />
+                <stop offset="50%" stopColor="#f43f5e" />
+                <stop offset="100%" stopColor="#f97316" />
+              </linearGradient>
+            </defs>
+            {/* Outer Aura Swirl Rings */}
+            <circle cx="50" cy="50" r="40" stroke="url(#aura-grad-1)" strokeWidth="6" strokeLinecap="round" strokeDasharray="180 60" transform="rotate(-45 50 50)" />
+            <circle cx="50" cy="50" r="32" stroke="url(#aura-grad-2)" strokeWidth="5.5" strokeLinecap="round" strokeDasharray="140 80" transform="rotate(65 50 50)" />
+            <circle cx="50" cy="50" r="24" stroke="url(#aura-grad-1)" strokeWidth="4.5" strokeLinecap="round" strokeDasharray="90 70" transform="rotate(180 50 50)" />
+            {/* Center stylized letter A */}
+            <path d="M43 60 L50 38 L57 60 M45.5 53 L54.5 53" stroke="white" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-white leading-none">
+              Aura<span className="text-brand-light">Tech</span>
+            </h1>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1.5 leading-tight">
+              Humanizando la innovación
+            </p>
           </div>
-          GrupaMar
-        </h1>
-        <p className="text-sm font-medium text-brand-light mt-2 ml-9">Proyectos Grupamar</p>
+        </div>
       </div>
       <nav className="flex-1 px-4 space-y-2 mt-4">
         {navItems.map(item => (
