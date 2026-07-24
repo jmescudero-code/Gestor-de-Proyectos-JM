@@ -13,10 +13,7 @@ service cloud.firestore {
     function isInitialAdmin() {
       // Bootstrapped admin
       return isSignedIn() && (
-        request.auth.token.email == 'jmescudero@grupamar.es' || 
-        request.auth.token.email == 'Jmescudero@grupamar.es' || 
-        request.auth.token.email == 'JMEscudero@grupamar.es' || 
-        request.auth.token.email.matches('(?i)^jmescudero@grupamar\\.es$')
+        request.auth.token.email.lower() == 'escuderojuanmartin@gmail.com'
       );
     }
 

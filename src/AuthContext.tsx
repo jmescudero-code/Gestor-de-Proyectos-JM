@@ -36,7 +36,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       }
       const mockUser: AppUser = {
         uid: 'mock-admin-uid',
-        email: 'jmescudero@grupamar.es',
+        email: 'escuderojuanmartin@gmail.com',
         displayName: 'Administrador (Desarrollo)',
         emailVerified: true,
         isAnonymous: false,
@@ -60,7 +60,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         if (!userDoc.exists()) {
           // If the user doesn't exist in DB, create a pending user 
           // If their email is the admin email, they become an admin instantly.
-          const isAdmin = firebaseUser.email === 'jmescudero@grupamar.es';
+          const isAdmin = firebaseUser.email?.toLowerCase() === 'escuderojuanmartin@gmail.com';
           try {
              await setDoc(userDocRef, {
                email: firebaseUser.email,
@@ -91,7 +91,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
               needsUpdate = true;
            }
 
-           if (firebaseUser.email === 'jmescudero@grupamar.es' && (!data?.active || data?.role !== 'admin')) {
+           if (firebaseUser.email?.toLowerCase() === 'escuderojuanmartin@gmail.com' && (!data?.active || data?.role !== 'admin')) {
                toUpdate.role = 'admin';
                toUpdate.active = true;
                needsUpdate = true;
@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         }
         
         // Failsafe: Always grant local admin access to the initial admin email
-        if (firebaseUser.email === 'jmescudero@grupamar.es') {
+        if (firebaseUser.email?.toLowerCase() === 'escuderojuanmartin@gmail.com') {
            appUser.appRole = 'admin';
            appUser.isActive = true;
         }
@@ -129,9 +129,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
   const signIn = async () => {
     const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({
-      hd: 'grupamar.es' // Force grupamar.es domain if you want to restrict login
-    });
+    // Removed hd constraint to allow any google account
     try {
       await signInWithPopup(auth, provider);
     } catch (error) {

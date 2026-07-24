@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 import { Button } from './ui/Button';
 import { useStore } from '../store/StoreContext';
@@ -8,10 +8,11 @@ interface EntityFormModalProps {
   onClose: () => void;
   type: 'project' | 'action' | 'subtask';
   parentId?: string; // groupId for project, projectId for action, actionId for subtask
+  entityToEdit?: any;
 }
 
-export const EntityFormModal: React.FC<EntityFormModalProps> = ({ isOpen, onClose, type, parentId }) => {
-  const { addProject, addAction, addSubtask, groups, projects, actions, allUsers } = useStore();
+export const EntityFormModal: React.FC<EntityFormModalProps> = ({ isOpen, onClose, type, parentId, entityToEdit }) => {
+  const { addProject, addAction, addSubtask, updateEntity, groups, projects, actions, allUsers } = useStore();
   
   const [name, setName] = useState('');
   const [errorName, setErrorName] = useState('');
@@ -36,6 +37,45 @@ export const EntityFormModal: React.FC<EntityFormModalProps> = ({ isOpen, onClos
   const [decisionDesc, setDecisionDesc] = useState('');
 
   const [projectTemplate, setProjectTemplate] = useState('');
+
+  useEffect(() => {
+    if (isOpen && entityToEdit) {
+      setName(entityToEdit.name || '');
+      setGroupId(entityToEdit.groupId || '');
+      setResponsible(entityToEdit.responsible || '');
+      setSecondaryResponsibles(entityToEdit.secondary_responsibles || []);
+      setDescription(entityToEdit.description || '');
+      setProjectType(entityToEdit.projectType || 'Mejora de proceso');
+      setEstimatedHours(entityToEdit.estimated_hours?.toString() || '');
+      setComplexity(entityToEdit.complexity || 'Media');
+      setImpact_level(entityToEdit.impact_level || 'Medio');
+      setUrgency_level(entityToEdit.urgency_level || 'Medio');
+      setStartDate(entityToEdit.plannedStartDate || '');
+      setEndDate(entityToEdit.plannedEndDate || '');
+      setNextStepDesc(entityToEdit.next_step_description || '');
+      setNextStepResp(entityToEdit.next_step_responsible_user_id || '');
+      setNextStepDate(entityToEdit.next_step_due_date || '');
+    } else if (isOpen && !entityToEdit) {
+      // Reset if not editing
+      setName('');
+      setGroupId('');
+      setResponsible('');
+      setSecondaryResponsibles([]);
+      setDescription('');
+      setEstimatedHours('');
+      setComplexity('Media');
+      setProjectType('Mejora de proceso');
+      setImpact_level('Medio');
+      setUrgency_level('Medio');
+      setStartDate('');
+      setEndDate('');
+      setNextStepDesc('');
+      setNextStepResp('');
+      setNextStepDate('');
+      setBlockerDesc('');
+      setDecisionDesc('');
+    }
+  }, [isOpen, entityToEdit]);
 
   if (!isOpen) return null;
 
@@ -75,42 +115,49 @@ export const EntityFormModal: React.FC<EntityFormModalProps> = ({ isOpen, onClos
     const baseData: any = {
         name,
         description,
-        status: 'No iniciada' as any,
-        progress: 0,
         responsible,
         secondary_responsibles: secondaryResponsibles,
         impact_level,
         urgency_level,
         ...(estimatedHours ? { estimated_hours: Number(estimatedHours) } : {}),
         complexity,
-        startDate: startDate,
-        endDate: endDate,
         plannedStartDate: startDate,
         plannedEndDate: endDate,
         next_step_description: nextStepDesc,
         next_step_responsible_user_id: nextStepResp,
         next_step_due_date: nextStepDate,
-        initial_blocker: blockerDesc,
-        initial_decision: decisionDesc
     };
 
+    if (startDate) baseData.startDate = startDate;
+    if (endDate) baseData.endDate = endDate;
+
     try {
-      if (type === 'project') {
-        baseData.projectType = projectType;
-        await addProject({
-          groupId: parentId || groupId,
-          ...baseData
-        });
-      } else if (type === 'action') {
-        await addAction({
-          projectId: parentId || (projects[0]?.id || ''),
-          ...baseData
-        });
-      } else if (type === 'subtask') {
-        await addSubtask({
-          actionId: parentId || (actions[0]?.id || ''),
-          ...baseData
-        });
+      if (entityToEdit) {
+        if (type === 'project') baseData.projectType = projectType;
+        await updateEntity(type, entityToEdit.id, baseData);
+      } else {
+        baseData.status = 'No iniciada';
+        baseData.progress = 0;
+        baseData.initial_blocker = blockerDesc;
+        baseData.initial_decision = decisionDesc;
+        
+        if (type === 'project') {
+          baseData.projectType = projectType;
+          await addProject({
+            groupId: parentId || groupId,
+            ...baseData
+          });
+        } else if (type === 'action') {
+          await addAction({
+            projectId: parentId || (projects[0]?.id || ''),
+            ...baseData
+          });
+        } else if (type === 'subtask') {
+          await addSubtask({
+            actionId: parentId || (actions[0]?.id || ''),
+            ...baseData
+          });
+        }
       }
       
       setName('');
@@ -142,7 +189,7 @@ export const EntityFormModal: React.FC<EntityFormModalProps> = ({ isOpen, onClos
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm pt-10">
       <div className="bg-white rounded-[16px] w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-          <h3 className="text-xl font-bold text-brand-dark">Nuevo/a {typeLabels[type]}</h3>
+          <h3 className="text-xl font-bold text-brand-dark">{entityToEdit ? 'Editar' : 'Nuevo/a'} {typeLabels[type]}</h3>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-[8px] text-gray-500 transition-colors">
             <X className="w-5 h-5" />
           </button>

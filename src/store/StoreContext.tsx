@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Group, Project, Action, Subtask, ProgressLog } from '../types';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, updateDoc, writeBatch, serverTimestamp, query, orderBy } from 'firebase/firestore';
@@ -17,6 +17,7 @@ interface StoreContextType {
   addAction: (a: Omit<Action, 'id' | 'code'> & {initial_blocker?: string, initial_decision?: string}) => Promise<void>;
   addSubtask: (s: Omit<Subtask, 'id' | 'code'> & {initial_blocker?: string, initial_decision?: string}) => Promise<void>;
   updateStatus: (type: 'project'|'action'|'subtask', id: string, status: any, progress: number, text?: string, blockers?: string, nextSteps?: string, attachments?: {name: string, url: string}[], nextStepResponsible?: string, nextStepDueDate?: string, closureSummary?: string, closureEvidenceUrl?: string, lessonsLearned?: string) => Promise<void>;
+  updateEntity: (type: 'project'|'action'|'subtask', id: string, data: any) => Promise<void>;
   deleteEntity: (type: 'project'|'action'|'subtask'|'user'|'group', id: string, userEmail: string) => Promise<void>;
   restoreEntity: (type: 'project'|'action'|'subtask'|'user'|'group', id: string) => Promise<void>;
   importData: (data: any[]) => Promise<{ newGroups: number, newProjects: number, newActions: number, newSubtasks: number, newUsers: number }>;
@@ -44,9 +45,9 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
         { id: 'g2', name: 'Corto plazo', active: true, priority: 'Alta', description: 'Proyectos de ejecución rápida' }
       ]);
       setAllUsers([
-        { id: 'u1', email: 'jmescudero@grupamar.es', name: 'José Escudero', role: 'admin', status: 'Activo', active: true },
-        { id: 'u2', email: 'carlos.olmos@grupamar.es', name: 'Carlos Olmos', role: 'editor', status: 'Activo', active: true },
-        { id: 'u3', email: 'ana.lopez@grupamar.es', name: 'Ana López', role: 'editor', status: 'Activo', active: true }
+        { id: 'u1', email: 'escuderojuanmartin@gmail.com', name: 'Juan Martin Escudero', role: 'admin', status: 'Activo', active: true },
+        { id: 'u2', email: 'carlos.olmos@virtual.local', name: 'Carlos Olmos', role: 'editor', status: 'Activo', active: true },
+        { id: 'u3', email: 'ana.lopez@virtual.local', name: 'Ana López', role: 'editor', status: 'Activo', active: true }
       ]);
       setProjects([]);
       setActions([]);
@@ -219,48 +220,82 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
     handleInitialBlockerAndDecision('subtask', newDoc.id, initial_blocker, initial_decision);
   };
 
-  const recalculateTreeProgress = async (type: 'project'|'action'|'subtask', id: string, newProgress: number, batch: any) => {
-     let actionIdToRecalc = null;
-     
+  const computeParentStats = (siblings: any[], currentParent: any, updatingId?: string, newProgress?: number, newStatus?: string) => {
+    let count = siblings.length;
+    if (count === 0) return null;
+
+    let totalProgress = 0;
+    let allListo = true;
+    let anyEnCurso = false;
+    let minStart = '';
+    let maxEnd = '';
+
+    siblings.forEach(s => {
+      const p = (s.id === updatingId && newProgress !== undefined) ? newProgress : s.progress || 0;
+      const st = (s.id === updatingId && newStatus !== undefined) ? newStatus : s.status;
+      
+      totalProgress += p;
+      if (st !== 'Listo') allListo = false;
+      if (st === 'En curso') anyEnCurso = true;
+      
+      const sStart = s.plannedStartDate;
+      const sEnd = s.plannedEndDate;
+      if (sStart) {
+        if (!minStart || new Date(sStart) < new Date(minStart)) minStart = sStart;
+      }
+      if (sEnd) {
+        if (!maxEnd || new Date(sEnd) > new Date(maxEnd)) maxEnd = sEnd;
+      }
+    });
+
+    const progress = Math.round(totalProgress / count);
+    let status = currentParent?.status || 'No iniciada';
+    if (allListo) status = 'Listo';
+    else if (anyEnCurso && status !== 'En curso') status = 'En curso';
+    else if (!allListo && status === 'Listo') status = 'En curso';
+
+    return { 
+      progress, 
+      status, 
+      ...(minStart ? { plannedStartDate: minStart } : {}), 
+      ...(maxEnd ? { plannedEndDate: maxEnd } : {}) 
+    };
+  };
+
+  const recalculateTreeProgress = async (type: 'project'|'action'|'subtask', id: string, newProgress: number, newStatus: string, batch: any) => {
      if (type === 'subtask') {
         const sub = subtasks.find(s => s.id === id);
         if (sub) {
-           actionIdToRecalc = sub.actionId;
+           const actionIdToRecalc = sub.actionId;
+           const actSiblings = subtasks.filter(s => s.actionId === actionIdToRecalc);
+           const act = actions.find(a => a.id === actionIdToRecalc);
+           const actStats = computeParentStats(actSiblings, act, id, newProgress, newStatus);
+           
+           if (actStats && act) {
+              const actRef = doc(db, 'actions', actionIdToRecalc);
+              batch.update(actRef, { ...actStats, updatedAt: serverTimestamp() });
+              
+              const pId = act.projectId;
+              const projSiblings = actions.filter(a => a.projectId === pId);
+              const proj = projects.find(p => p.id === pId);
+              const projStats = computeParentStats(projSiblings, proj, actionIdToRecalc, actStats.progress, actStats.status);
+              if (projStats && proj) {
+                 const projRef = doc(db, 'projects', pId);
+                 batch.update(projRef, { ...projStats, updatedAt: serverTimestamp() });
+              }
+           }
         }
      } else if (type === 'action') {
-        actionIdToRecalc = id;
-     }
-
-     if (actionIdToRecalc) {
-        // Find all subtasks for this action (including our uncommitted update logic here: assume current snapshot for siblings)
-        const siblings = subtasks.filter(s => s.actionId === actionIdToRecalc);
-        let totalProgress = 0;
-        let count = 0;
-        siblings.forEach(s => {
-           totalProgress += (s.id === id) ? newProgress : s.progress;
-           count++;
-        });
-        
-        let actionProgress = count > 0 ? Math.round(totalProgress / count) : 0;
-        if (type === 'action') actionProgress = newProgress; // Override if direct action update
-
-        const actRef = doc(db, 'actions', actionIdToRecalc);
-        batch.update(actRef, { progress: actionProgress, updatedAt: serverTimestamp() });
-        
-        const act = actions.find(a => a.id === actionIdToRecalc);
+        const act = actions.find(a => a.id === id);
         if (act) {
-           const projectId = act.projectId;
-           const actSiblings = actions.filter(a => a.projectId === projectId);
-           let projTotal = 0;
-           let projCount = 0;
-           actSiblings.forEach(a => {
-              projTotal += (a.id === actionIdToRecalc) ? actionProgress : a.progress;
-              projCount++;
-           });
-           const projProgress = projCount > 0 ? Math.round(projTotal / projCount) : 0;
-           
-           const projRef = doc(db, 'projects', projectId);
-           batch.update(projRef, { progress: projProgress, updatedAt: serverTimestamp() });
+           const pId = act.projectId;
+           const projSiblings = actions.filter(a => a.projectId === pId);
+           const proj = projects.find(p => p.id === pId);
+           const projStats = computeParentStats(projSiblings, proj, id, newProgress, newStatus);
+           if (projStats && proj) {
+              const projRef = doc(db, 'projects', pId);
+              batch.update(projRef, { ...projStats, updatedAt: serverTimestamp() });
+           }
         }
      }
   };
@@ -289,25 +324,31 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
         const sub = subtasks.find(s => s.id === id);
         if (sub) {
           const actionId = sub.actionId;
-          const siblings = subtasks.map(s => s.id === id ? { ...s, progress } : s).filter(s => s.actionId === actionId);
-          const actProgress = siblings.length > 0 ? Math.round(siblings.reduce((acc, s) => acc + s.progress, 0) / siblings.length) : 0;
-          setActions(prev => prev.map(a => a.id === actionId ? { ...a, progress: actProgress, updatedAt: new Date().toISOString() } : a));
-          
+          const actSiblings = subtasks.filter(s => s.actionId === actionId);
           const act = actions.find(a => a.id === actionId);
-          if (act) {
-            const pId = act.projectId;
-            const actSiblings = actions.map(a => a.id === actionId ? { ...a, progress: actProgress } : a).filter(a => a.projectId === pId);
-            const projProgress = actSiblings.length > 0 ? Math.round(actSiblings.reduce((acc, a) => acc + a.progress, 0) / actSiblings.length) : 0;
-            setProjects(prev => prev.map(p => p.id === pId ? { ...p, progress: projProgress, updatedAt: new Date().toISOString() } : p));
+          const actStats = computeParentStats(actSiblings, act, id, progress, status);
+          if (actStats && act) {
+             setActions(prev => prev.map(a => a.id === actionId ? { ...a, ...actStats, updatedAt: new Date().toISOString() } : a));
+             
+             const pId = act.projectId;
+             const projSiblings = actions.filter(a => a.projectId === pId);
+             const proj = projects.find(p => p.id === pId);
+             const projStats = computeParentStats(projSiblings, proj, actionId, actStats.progress, actStats.status);
+             if (projStats && proj) {
+                setProjects(prev => prev.map(p => p.id === pId ? { ...p, ...projStats, updatedAt: new Date().toISOString() } : p));
+             }
           }
         }
       } else if (type === 'action') {
         const act = actions.find(a => a.id === id);
         if (act) {
           const pId = act.projectId;
-          const actSiblings = actions.map(a => a.id === id ? { ...a, progress } : a).filter(a => a.projectId === pId);
-          const projProgress = actSiblings.length > 0 ? Math.round(actSiblings.reduce((acc, a) => acc + a.progress, 0) / actSiblings.length) : 0;
-          setProjects(prev => prev.map(p => p.id === pId ? { ...p, progress: projProgress, updatedAt: new Date().toISOString() } : p));
+          const projSiblings = actions.filter(a => a.projectId === pId);
+          const proj = projects.find(p => p.id === pId);
+          const projStats = computeParentStats(projSiblings, proj, id, progress, status);
+          if (projStats && proj) {
+            setProjects(prev => prev.map(p => p.id === pId ? { ...p, ...projStats, updatedAt: new Date().toISOString() } : p));
+          }
         }
       }
 
@@ -318,7 +359,7 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
             entityType: type,
             entityId: id,
             userId: 'mock-admin-uid',
-            user: user?.email || 'jmescudero@grupamar.es',
+            user: user?.email || 'escuderojuanmartin@gmail.com',
             finalText: text || '',
             blockers: blockers || '',
             nextSteps: nextSteps || '',
@@ -375,10 +416,31 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
 
     // 3. Recalculate ancestors Progress Automatically
     if (type !== 'project') {
-       await recalculateTreeProgress(type, id, progress, batch);
+       await recalculateTreeProgress(type, id, progress, status, batch);
     }
     
     await batch.commit();
+  };
+
+  const updateEntity = async (type: 'project'|'action'|'subtask', id: string, data: any) => {
+    if (isMock) {
+      const setFn = type === 'project' ? setProjects : (type === 'action' ? setActions : setSubtasks);
+      setFn((prev: any[]) => prev.map(item => item.id === id ? { ...item, ...data, updatedAt: new Date().toISOString() } : item));
+      return;
+    }
+
+    try {
+      let collName = type === 'project' ? 'projects' : (type === 'action' ? 'actions' : 'subtasks');
+      const entityRef = doc(db, collName, id);
+      const cleanDataToUpdate = cleanData(data);
+      // Ensure we set updatedAt
+      cleanDataToUpdate.updatedAt = serverTimestamp();
+      
+      await updateDoc(entityRef, cleanDataToUpdate);
+    } catch(err) {
+      console.error("Error al actualizar (updateEntity):", err);
+      throw err;
+    }
   };
 
   const deleteEntity = async (type: 'project'|'action'|'subtask'|'user'|'group', id: string, userEmail: string) => {
@@ -494,7 +556,7 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
           if (!rawId) return '';
           let email = rawId.toLowerCase().replace(/\s+/g, '.').replace(/\//g, '-').replace(/\\/g, '-');
           if (!email.includes('@')) {
-             email = `${email}@virtual.grupamar.local`;
+             email = `${email}@virtual.local`;
           }
           if (!tempUsers.some(u => u.email.toLowerCase() === email.toLowerCase())) {
              tempUsers.push({
@@ -511,7 +573,7 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
           return identifiers.map(identifier => {
              let email = identifier.toLowerCase().replace(/\s+/g, '.').replace(/\//g, '-').replace(/\\/g, '-');
              if (!email.includes('@')) {
-                email = `${email}@virtual.grupamar.local`;
+                email = `${email}@virtual.local`;
              }
              if (!tempUsers.some(u => u.email.toLowerCase() === email.toLowerCase())) {
                 tempUsers.push({
@@ -670,7 +732,7 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
           if (!rawId) return '';
           let email = rawId.toLowerCase().replace(/\s+/g, '.').replace(/\//g, '-').replace(/\\/g, '-');
           if (!email.includes('@')) {
-             email = `${email}@virtual.grupamar.local`;
+             email = `${email}@virtual.local`;
           }
           if (!localUsers.has(email)) {
              const newUserId = email;
@@ -689,7 +751,7 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
           return identifiers.map(identifier => {
               let email = identifier.toLowerCase().replace(/\s+/g, '.').replace(/\//g, '-').replace(/\\/g, '-');
               if (!email.includes('@')) {
-                 email = `${email}@virtual.grupamar.local`;
+                 email = `${email}@virtual.local`;
               }
               if (!localUsers.has(email)) {
                  localUsers.set(email, email);
@@ -799,8 +861,33 @@ export const StoreProvider: React.FC<{children: React.ReactNode}> = ({ children 
     }
   };
 
+  // Dynamically compute derived dates for actions and projects to ensure UI is always correct
+  const derivedActions = useMemo(() => {
+    return actions.map(act => {
+      const actSubs = subtasks.filter(s => s.actionId === act.id && s.active !== false);
+      if (actSubs.length === 0) return act;
+      const startDates = actSubs.map(s => s.plannedStartDate).filter(Boolean);
+      const endDates = actSubs.map(s => s.plannedEndDate).filter(Boolean);
+      const minStart = startDates.length > 0 ? startDates.reduce((a, b) => new Date(a) < new Date(b) ? a : b) : act.plannedStartDate;
+      const maxEnd = endDates.length > 0 ? endDates.reduce((a, b) => new Date(a) > new Date(b) ? a : b) : act.plannedEndDate;
+      return { ...act, plannedStartDate: minStart, plannedEndDate: maxEnd };
+    });
+  }, [actions, subtasks]);
+
+  const derivedProjects = useMemo(() => {
+    return projects.map(proj => {
+      const projActs = derivedActions.filter(a => a.projectId === proj.id && a.active !== false);
+      if (projActs.length === 0) return proj;
+      const startDates = projActs.map(a => a.plannedStartDate).filter(Boolean);
+      const endDates = projActs.map(a => a.plannedEndDate).filter(Boolean);
+      const minStart = startDates.length > 0 ? startDates.reduce((a, b) => new Date(a) < new Date(b) ? a : b) : proj.plannedStartDate;
+      const maxEnd = endDates.length > 0 ? endDates.reduce((a, b) => new Date(a) > new Date(b) ? a : b) : proj.plannedEndDate;
+      return { ...proj, plannedStartDate: minStart, plannedEndDate: maxEnd };
+    });
+  }, [projects, derivedActions]);
+
   return (
-    <StoreContext.Provider value={{ groups, projects, actions, subtasks, logs, allUsers, blockers, decisions, addProject, addAction, addSubtask, updateStatus, deleteEntity, restoreEntity, importData }}>
+    <StoreContext.Provider value={{ groups, projects: derivedProjects, actions: derivedActions, subtasks, logs, allUsers, blockers, decisions, addProject, addAction, addSubtask, updateStatus, updateEntity, deleteEntity, restoreEntity, importData }}>
       {children}
     </StoreContext.Provider>
   );

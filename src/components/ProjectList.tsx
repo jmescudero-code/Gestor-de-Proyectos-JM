@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../store/StoreContext';
-import { ChevronRight, ChevronDown, Plus, Play, Pause, Check, AlertCircle, Search, Filter, Clock, Activity, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Plus, Play, Pause, Check, AlertCircle, Search, Filter, Clock, Activity, Trash2, Edit2 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { StatusBadge } from './ui/Badge';
 import { Project, Action, Subtask } from '../types';
@@ -58,11 +58,25 @@ export const getResponsibleName = (email: string, allUsers: any[]) => {
     }
 };
 
+export const sortEntities = (a: any, b: any) => {
+  const codeA = String(a.code || '').split('.').map(n => isNaN(Number(n)) ? 0 : Number(n));
+  const codeB = String(b.code || '').split('.').map(n => isNaN(Number(n)) ? 0 : Number(n));
+  
+  for (let i = 0; i < Math.max(codeA.length, codeB.length); i++) {
+    const numA = codeA[i] || 0;
+    const numB = codeB[i] || 0;
+    if (numA !== numB) {
+      return numA - numB;
+    }
+  }
+  return 0;
+};
+
 export const ProjectList: React.FC = () => {
   const { groups, projects, actions, subtasks, allUsers, deleteEntity } = useStore();
   const { user } = useAuth();
-  const [modalData, setModalData] = useState<{isOpen: boolean, type: any, id: string, name: string, status: string, progress: number} | null>(null);
-  const [formModal, setFormModal] = useState<{isOpen: boolean, type: 'project' | 'action' | 'subtask', parentId?: string}>({ isOpen: false, type: 'project' });
+  const [modalData, setModalData] = useState<{isOpen: boolean, type: 'project' | 'action' | 'subtask', id: string, name: string, status: string, progress: number} | null>(null);
+  const [formModal, setFormModal] = useState<{isOpen: boolean, type: 'project' | 'action' | 'subtask', parentId?: string, entityToEdit?: any} | null>(null);
   const [detailModal, setDetailModal] = useState<{isOpen: boolean, type: 'project' | 'action' | 'subtask', id: string} | null>(null);
   const [deleteData, setDeleteData] = useState<{isOpen: boolean, type: 'project' | 'action' | 'subtask' | 'group', id: string, name: string} | null>(null);
 
@@ -94,8 +108,8 @@ export const ProjectList: React.FC = () => {
     setModalData({ isOpen: true, type, id, name, status, progress });
   };
 
-  const openFormModal = (type: 'project' | 'action' | 'subtask', parentId?: string) => {
-    setFormModal({ isOpen: true, type, parentId });
+  const openFormModal = (type: 'project' | 'action' | 'subtask', parentId?: string, entityToEdit?: any) => {
+    setFormModal({ isOpen: true, type, parentId, entityToEdit });
   };
 
   const openDetailModal = (type: 'project' | 'action' | 'subtask', id: string) => {
@@ -194,12 +208,15 @@ export const ProjectList: React.FC = () => {
         />
       )}
 
-      <EntityFormModal 
-        isOpen={formModal.isOpen} 
-        onClose={() => setFormModal({ ...formModal, isOpen: false })} 
-        type={formModal.type} 
-        parentId={formModal.parentId} 
-      />
+      {formModal && (
+        <EntityFormModal 
+          isOpen={formModal.isOpen} 
+          onClose={() => setFormModal(null)} 
+          type={formModal.type}
+          parentId={formModal.parentId}
+          entityToEdit={formModal.entityToEdit}
+        />
+      )}
       {detailModal && (
         <EntityDetailModal
           isOpen={detailModal.isOpen}
@@ -227,7 +244,7 @@ export const ProjectList: React.FC = () => {
 
 const GroupSection: React.FC<{ group: any, onOpenModal: any, onOpenForm: any, onOpenDetail: any, onDeleteModal: any, userRole: any, filterItem: (i:any)=>boolean }> = ({ group, onOpenModal, onOpenForm, onOpenDetail, onDeleteModal, userRole, filterItem }) => {
   const { projects, actions, subtasks } = useStore();
-  const groupProjects = projects.filter(p => p.groupId === group.id && p.active !== false);
+  const groupProjects = projects.filter(p => (p.groupId === group.id || (!p.groupId && !group.id)) && p.active !== false).sort(sortEntities);
   const hasVisibleProject = groupProjects.some(p => {
      if (filterItem(p)) return true;
      const projActions = actions.filter(a => a.projectId === p.id && a.active !== false);
@@ -284,7 +301,7 @@ const ProjectRow: React.FC<{ project: any, onOpenModal: any, onOpenForm: any, on
   const { actions, subtasks, allUsers, deleteEntity } = useStore();
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
-  const projActions = actions.filter(a => a.projectId === project.id && a.active !== false);
+  const projActions = actions.filter(a => a.projectId === project.id && a.active !== false).sort(sortEntities);
   const showDelayAlert = isDelayed(project.updatedAt, project.status);
 
   const hasVisibleAction = projActions.some(a => {
@@ -337,6 +354,13 @@ const ProjectRow: React.FC<{ project: any, onOpenModal: any, onOpenForm: any, on
                    <Activity className="w-4 h-4"/>
                  </button>
                  <button 
+                   onClick={(e) => { e.stopPropagation(); onOpenForm('project', undefined, project); }}
+                   className="p-1.5 rounded-[8px] hover:bg-gray-100 text-gray-500 transition-colors" 
+                   title="Editar"
+                 >
+                   <Edit2 className="w-4 h-4"/>
+                 </button>
+                 <button 
                    onClick={(e) => { e.stopPropagation(); onOpenModal('project', project.id, project.name, project.status, project.progress); }}
                    className="p-1.5 rounded-[8px] hover:bg-brand-orange/10 text-brand-orange transition-colors" 
                    title="Registrar Avance"
@@ -376,7 +400,7 @@ const ActionRow: React.FC<{ action: any, onOpenModal: any, onOpenForm: any, onOp
   const { subtasks, allUsers, deleteEntity } = useStore();
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
-  const actSubtasks = subtasks.filter(s => s.actionId === action.id && s.active !== false);
+  const actSubtasks = subtasks.filter(s => s.actionId === action.id && s.active !== false).sort(sortEntities);
   const showDelayAlert = isDelayed(action.updatedAt, action.status);
 
   const hasVisibleSubtask = actSubtasks.some(s => filterItem(s));
@@ -425,6 +449,13 @@ const ActionRow: React.FC<{ action: any, onOpenModal: any, onOpenForm: any, onOp
                    <Activity className="w-4 h-4"/>
                  </button>
                  <button 
+                   onClick={(e) => { e.stopPropagation(); onOpenForm('action', undefined, action); }}
+                   className="p-1.5 rounded-[8px] hover:bg-gray-100 text-gray-500 transition-colors" 
+                   title="Editar"
+                 >
+                   <Edit2 className="w-4 h-4"/>
+                 </button>
+                 <button 
                    onClick={(e) => { e.stopPropagation(); onOpenModal('action', action.id, action.name, action.status, action.progress); }}
                    className="p-1.5 rounded-[8px] hover:bg-brand-orange/10 text-brand-orange transition-colors" 
                    title="Registrar Avance"
@@ -444,7 +475,7 @@ const ActionRow: React.FC<{ action: any, onOpenModal: any, onOpenForm: any, onOp
       </div>
       {expanded && (
         <div className="bg-white divide-y divide-gray-50 shadow-inner">
-          {actSubtasks.map(sub => <SubtaskRow key={sub.id} subtask={sub} onOpenModal={onOpenModal} onOpenDetail={onOpenDetail} onDeleteModal={onDeleteModal} userRole={userRole} filterItem={filterItem} />)}
+          {actSubtasks.map(sub => <SubtaskRow key={sub.id} subtask={sub} onOpenModal={onOpenModal} onOpenForm={onOpenForm} onOpenDetail={onOpenDetail} onDeleteModal={onDeleteModal} userRole={userRole} filterItem={filterItem} />)}
           {userRole !== 'viewer' && (
             <div className="pl-[7.5rem] p-3 relative before:absolute before:left-[4.5rem] before:top-0 before:bottom-0 before:w-px before:bg-gray-200">
               <Button onClick={() => onOpenForm('subtask', action.id)} variant="ghost" className="text-xs py-1.5 h-8 gap-1.5 text-gray-500 hover:text-brand-dark"><Plus className="w-3 h-3"/> Nueva Subtarea</Button>
@@ -456,7 +487,7 @@ const ActionRow: React.FC<{ action: any, onOpenModal: any, onOpenForm: any, onOp
   );
 };
 
-const SubtaskRow: React.FC<{ subtask: any, onOpenModal: any, onOpenDetail: any, onDeleteModal: any, userRole: any, filterItem: (i:any)=>boolean }> = ({ subtask, onOpenModal, onOpenDetail, onDeleteModal, userRole, filterItem }) => {
+const SubtaskRow: React.FC<{ subtask: any, onOpenModal: any, onOpenForm: any, onOpenDetail: any, onDeleteModal: any, userRole: any, filterItem: (i:any)=>boolean }> = ({ subtask, onOpenModal, onOpenForm, onOpenDetail, onDeleteModal, userRole, filterItem }) => {
   const { allUsers, deleteEntity } = useStore();
   const { user } = useAuth();
   const showDelayAlert = isDelayed(subtask.updatedAt, subtask.status);
@@ -499,6 +530,13 @@ const SubtaskRow: React.FC<{ subtask: any, onOpenModal: any, onOpenDetail: any, 
                 title="Ver Detalles y Línea de Tiempo"
               >
                 <Activity className="w-4 h-4"/>
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onOpenForm('subtask', undefined, subtask); }}
+                className="p-1.5 rounded-[8px] hover:bg-gray-100 text-gray-500 transition-colors" 
+                title="Editar"
+              >
+                <Edit2 className="w-4 h-4"/>
               </button>
               <button 
                 onClick={(e) => { e.stopPropagation(); onOpenModal('subtask', subtask.id, subtask.name, subtask.status, subtask.progress); }}

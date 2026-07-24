@@ -1,109 +1,262 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../store/StoreContext';
-import { AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
-import { getHealthStatus } from '../utils/health';
+import { AlertCircle, Calendar, CalendarClock, Activity, CheckCircle2, ChevronRight, Clock, Plus } from 'lucide-react';
 import { StatusBadge } from './ui/Badge';
+import { EntityDetailModal } from './EntityDetailModal';
+import { ProgressModal } from './ProgressModal';
+import { getResponsibleName } from './ProjectList';
 
 export const WeeklyReview: React.FC = () => {
-    const { groups: allG, projects: allP, actions: allA, subtasks: allS, allUsers, blockers, decisions } = useStore();
+    const { groups: allG, projects: allP, actions: allA, subtasks: allS, allUsers } = useStore();
+    
+    const [detailModal, setDetailModal] = useState<{isOpen: boolean, type: 'project' | 'action' | 'subtask', id: string} | null>(null);
+    const [progressModal, setProgressModal] = useState<{isOpen: boolean, type: any, id: string, name: string, status: string, progress: number} | null>(null);
+
+    // Filtrar elementos activos
     const activeGroups = new Set(allG.filter(g => g.active !== false).map(g => g.id));
     const projects = allP.filter(p => p.active !== false && (!p.groupId || activeGroups.has(p.groupId)));
-    
     const activeProjects = new Set(projects.map(p => p.id));
     const actions = allA.filter(a => a.active !== false && (!a.projectId || activeProjects.has(a.projectId)));
-    
     const activeActions = new Set(actions.map(a => a.id));
     const subtasks = allS.filter(s => s.active !== false && (!s.actionId || activeActions.has(s.actionId)));
 
-    const getResponsibleName = (email: string) => {
-        if (!email) return '-';
-        const user = allUsers?.find(u => u?.email && String(u.email).toLowerCase() === String(email).toLowerCase());
-        return user?.name || email;
-    };
+    // Obtener "Nodos Hoja" (Elementos sin hijos) para que sean accionables
+    const leafNodes: any[] = [];
+    
+    subtasks.forEach(s => leafNodes.push({...s, typeName: 'subtask'}));
+    
+    actions.forEach(a => {
+        const hasSubtasks = subtasks.some(s => s.actionId === a.id);
+        if (!hasSubtasks) leafNodes.push({...a, typeName: 'action'});
+    });
+    
+    projects.forEach(p => {
+        const hasActions = actions.some(a => a.projectId === p.id);
+        if (!hasActions) leafNodes.push({...p, typeName: 'project'});
+    });
 
-    const getItemsRequiringAttention = () => {
-        const issues: any[] = [];
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+
+    const todayItems: any[] = [];
+    const tomorrowItems: any[] = [];
+    const overdueItems: any[] = [];
+
+    leafNodes.forEach(item => {
+        if (item.status === 'Listo' || item.status === 'Cancelado') return;
         
-        const checkItem = (item: any, typeName: string) => {
-            const health = getHealthStatus(item, blockers, decisions);
-            if (health.status === 'red' || health.status === 'yellow') {
-                issues.push({ ...item, typeName, health });
-            }
-        };
+        const start = item.plannedStartDate || '';
+        const end = item.plannedEndDate || '';
+        
+        if (!start && !end) return; // Ignorar sin fecha
+        
+        // Vencida
+        if (end && end < todayStr) {
+            overdueItems.push(item);
+            return;
+        }
+        
+        const isToday = (start <= todayStr && (!end || end >= todayStr));
+        if (isToday) {
+            todayItems.push(item);
+            return;
+        }
+        
+        const isTomorrow = (start <= tomorrowStr && (!end || end >= tomorrowStr));
+        if (isTomorrow) {
+            tomorrowItems.push(item);
+        }
+    });
 
-        projects.forEach(p => checkItem(p, 'Proyecto'));
-        actions.forEach(a => checkItem(a, 'Acción'));
-        subtasks.forEach(s => checkItem(s, 'Subtarea'));
-
-        return issues.sort((a, b) => {
-            if (a.health.status === 'red' && b.health.status !== 'red') return -1;
-            if (a.health.status !== 'red' && b.health.status === 'red') return 1;
-            return 0;
-        });
+    // Función auxiliar para ordenar priorizando la fecha de fin más cercana
+    const sortByDate = (a: any, b: any) => {
+        const dateA = a.plannedEndDate || '9999-12-31';
+        const dateB = b.plannedEndDate || '9999-12-31';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        // Si la fecha de fin es igual, ordenar por fecha de inicio
+        const startA = a.plannedStartDate || '9999-12-31';
+        const startB = b.plannedStartDate || '9999-12-31';
+        return startA.localeCompare(startB);
     };
 
-    const issues = getItemsRequiringAttention();
+    todayItems.sort(sortByDate);
+    tomorrowItems.sort(sortByDate);
+    overdueItems.sort(sortByDate);
 
-    return (
-        <div className="max-w-6xl mx-auto space-y-6">
-            <div>
-                <h2 className="text-3xl font-bold text-brand-dark tracking-tight">Revisión Semanal</h2>
-                <p className="text-gray-500 mt-1 font-medium text-sm">Elementos que requieren atención para asegurar la correcta ejecución del portfolio.</p>
-            </div>
-
-            {issues.length === 0 ? (
-                <div className="bg-green-50 p-6 rounded-[16px] text-center justify-center flex flex-col items-center">
-                    <CheckCircle2 className="w-12 h-12 text-green-500 mb-3" />
-                    <p className="text-lg font-bold text-green-800">¡Todo está al día!</p>
-                    <p className="text-sm text-green-600 mt-1">No hay elementos que requieran revisión esta semana.</p>
+    const ItemCard = ({ item }: { item: any }) => (
+        <div 
+            onClick={() => setDetailModal({ isOpen: true, type: item.typeName, id: item.id })}
+            className="group bg-white border border-gray-100 rounded-[12px] p-4 hover:border-brand-light/30 hover:shadow-md transition-all cursor-pointer relative overflow-hidden"
+        >
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-light opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{item.code}</span>
+                    <span className="text-[10px] uppercase font-bold text-brand-light tracking-wider">
+                        {item.typeName === 'project' ? 'Proyecto' : item.typeName === 'action' ? 'Acción' : 'Subtarea'}
+                    </span>
                 </div>
-            ) : (
-                <div className="bg-white rounded-[16px] shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50/50 border-b border-gray-100">
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-wide">Elemento</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-wide">Responsable</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-wide">Salud</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-wide">Motivo</th>
-                                    <th className="p-4 text-xs font-bold text-gray-500 uppercase tracking-wide">Estado</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {issues.map((item, index) => (
-                                    <tr key={`${item.id}-${index}`} className="hover:bg-brand-light/5 transition-colors">
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs font-mono font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{item.code}</span>
-                                                <span className="font-semibold text-brand-dark text-sm">{item.name}</span>
-                                            </div>
-                                            <div className="text-[10px] text-brand-light font-bold uppercase mt-1 tracking-wider">{item.typeName}</div>
-                                        </td>
-                                        <td className="p-4 text-sm font-medium text-gray-600">
-                                            {getResponsibleName(item.responsible)}
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`w-3 h-3 rounded-full shadow-sm ${item.health.status === 'red' ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
-                                                <span className="text-xs font-bold capitalize text-gray-600">{item.health.status === 'red' ? 'Crítico' : 'En riesgo'}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex items-start gap-1.5">
-                                                {item.health.status === 'red' ? <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" /> : <Clock className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />}
-                                                <span className="text-sm text-gray-700 max-w-[250px] leading-snug">{item.health.reason}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4">
-                                            <StatusBadge status={item.status} />
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                <StatusBadge status={item.status} />
+            </div>
+            
+            <h4 className="font-bold text-brand-dark leading-tight mb-3 pr-8">{item.name}</h4>
+            
+            <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium mt-auto">
+                <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Inicio: {item.plannedStartDate ? new Date(item.plannedStartDate + 'T00:00:00').toLocaleDateString() : '-'}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Fin: {item.plannedEndDate ? new Date(item.plannedEndDate + 'T00:00:00').toLocaleDateString() : '-'}</span>
                     </div>
                 </div>
+                <div className="flex items-center gap-3">
+                   <div className="flex items-center gap-2 w-20">
+                     <div className="w-full bg-gray-100 rounded-full h-1.5">
+                       <div className="bg-brand-light h-1.5 rounded-full" style={{width: `${item.progress}%`}}></div>
+                     </div>
+                     <span className="text-[10px] font-bold">{item.progress}%</span>
+                   </div>
+                </div>
+            </div>
+
+            <button 
+                onClick={(e) => { e.stopPropagation(); setProgressModal({ isOpen: true, type: item.typeName, id: item.id, name: item.name, status: item.status, progress: item.progress }); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-brand-light/10 text-brand-light opacity-0 group-hover:opacity-100 transition-opacity hover:bg-brand-light hover:text-white"
+                title="Registrar Avance"
+            >
+                <Plus className="w-4 h-4" />
+            </button>
+        </div>
+    );
+
+    return (
+        <div className="max-w-7xl mx-auto space-y-6">
+            <div>
+                <h2 className="text-3xl font-bold text-brand-dark tracking-tight">Foco Diario</h2>
+                <p className="text-gray-500 mt-1 font-medium text-sm">Tu plan de acción para hoy y mañana.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* PANEL HOY */}
+                <div className="bg-blue-50/30 rounded-[20px] p-6 border border-blue-100/50">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="p-2.5 bg-blue-500 text-white rounded-[10px] shadow-sm">
+                            <Activity className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-xl text-brand-dark">Lo que toca hoy</h3>
+                            <p className="text-xs text-gray-500 font-medium">Elementos activos para {new Date().toLocaleDateString()}</p>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {todayItems.length === 0 ? (
+                            <div className="text-center py-8 bg-white/50 rounded-[12px] border border-blue-50">
+                                <CheckCircle2 className="w-8 h-8 text-blue-300 mx-auto mb-2" />
+                                <p className="text-sm font-bold text-blue-800">¡Todo al día!</p>
+                                <p className="text-xs text-blue-600 mt-1">No hay tareas programadas para hoy.</p>
+                            </div>
+                        ) : (
+                            todayItems.map(item => <ItemCard key={item.id} item={item} />)
+                        )}
+                    </div>
+                </div>
+
+                {/* PANEL MAÑANA */}
+                <div className="bg-purple-50/30 rounded-[20px] p-6 border border-purple-100/50">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="p-2.5 bg-purple-500 text-white rounded-[10px] shadow-sm">
+                            <CalendarClock className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-xl text-brand-dark">Lo de mañana (Adelantar)</h3>
+                            <p className="text-xs text-gray-500 font-medium">Elementos que puedes ir avanzando</p>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {tomorrowItems.length === 0 ? (
+                            <div className="text-center py-8 bg-white/50 rounded-[12px] border border-purple-50">
+                                <Calendar className="w-8 h-8 text-purple-300 mx-auto mb-2" />
+                                <p className="text-sm font-bold text-purple-800">Agenda libre</p>
+                                <p className="text-xs text-purple-600 mt-1">No hay tareas programadas para mañana.</p>
+                            </div>
+                        ) : (
+                            tomorrowItems.map(item => <ItemCard key={item.id} item={item} />)
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* PANEL VENCIDAS */}
+            {overdueItems.length > 0 && (
+                <div className="bg-red-50/30 rounded-[20px] p-6 border border-red-100">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="p-2.5 bg-red-500 text-white rounded-[10px] shadow-sm">
+                            <AlertCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-xl text-red-800">Alertas / Vencidas</h3>
+                            <p className="text-xs text-red-600 font-medium">Elementos cuya fecha límite ya pasó</p>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {overdueItems.map(item => (
+                            <div 
+                                key={item.id}
+                                onClick={() => setDetailModal({ isOpen: true, type: item.typeName, id: item.id })}
+                                className="bg-white border-l-4 border-l-red-500 rounded-[12px] p-4 shadow-sm hover:shadow-md transition-all cursor-pointer relative group"
+                            >
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{item.code}</span>
+                                    <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" /> Vencida
+                                    </span>
+                                </div>
+                                <h4 className="font-bold text-gray-800 text-sm leading-tight mb-2 pr-6">{item.name}</h4>
+                                <div className="text-xs font-medium text-gray-500">
+                                    Responsable: {getResponsibleName(item.responsible, allUsers)}
+                                </div>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); setProgressModal({ isOpen: true, type: item.typeName, id: item.id, name: item.name, status: item.status, progress: item.progress }); }}
+                                    className="absolute right-3 bottom-3 p-1.5 rounded-full bg-red-50 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 hover:text-white"
+                                    title="Registrar Avance"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {detailModal && (
+                <EntityDetailModal
+                    isOpen={detailModal.isOpen}
+                    onClose={() => setDetailModal(null)}
+                    entityId={detailModal.id}
+                    entityType={detailModal.type}
+                />
+            )}
+
+            {progressModal && (
+                <ProgressModal
+                    isOpen={progressModal.isOpen}
+                    onClose={() => setProgressModal(null)}
+                    entityType={progressModal.type}
+                    entityId={progressModal.id}
+                    entityName={progressModal.name}
+                    currentStatus={progressModal.status}
+                    currentProgress={progressModal.progress}
+                />
             )}
         </div>
     );

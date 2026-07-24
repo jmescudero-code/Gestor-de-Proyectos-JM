@@ -83,6 +83,12 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({ isOpen, on
                                     <span className="font-bold text-gray-800">Responsables secundarios:</span> {entity.secondary_responsibles.map(getResponsibleName).join(', ')}
                                 </p>
                             )}
+                            {entity.description && (
+                                <div className="mt-3 text-sm text-gray-700 bg-gray-50/80 p-3.5 rounded-[12px] border border-gray-100/50 shadow-sm">
+                                    <p className="font-bold text-gray-800 mb-1">Descripción</p>
+                                    <p className="whitespace-pre-wrap leading-relaxed">{entity.description}</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <button 
